@@ -53,6 +53,11 @@ public abstract class LeapArray<T> {
     private final ReentrantLock updateLock = new ReentrantLock();
 
     /**
+     * The Cache of the last reset window, which may be deprecated in the sense of time.
+     */
+    private volatile WindowWrap<T> lastResetWindow = null;
+
+    /**
      * The total bucket count is: {@code sampleCount = intervalInMs / windowLengthInMs}.
      *
      * @param sampleCount  bucket count of the sliding window
@@ -116,6 +121,13 @@ public abstract class LeapArray<T> {
     public WindowWrap<T> currentWindow(long timeMillis) {
         if (timeMillis < 0) {
             return null;
+        }
+
+        // Try the last reset window as a shortcut.
+        final WindowWrap<T> lastResetOne = lastResetWindow;
+        if (lastResetOne != null && timeMillis >= lastResetOne.windowStart()
+                && timeMillis - lastResetOne.windowStart() < windowLengthInMs) {
+            return lastResetOne;
         }
 
         int idx = calculateTimeIdx(timeMillis);
@@ -186,7 +198,8 @@ public abstract class LeapArray<T> {
                 if (updateLock.tryLock()) {
                     try {
                         // Successfully get the update lock, now we reset the bucket.
-                        return resetWindowTo(old, windowStart);
+                        lastResetWindow = resetWindowTo(old, windowStart);
+                        return lastResetWindow;
                     } finally {
                         updateLock.unlock();
                     }
